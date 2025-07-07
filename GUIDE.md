@@ -58,39 +58,32 @@ The core of the extraction process is the **Extraction Schema**. This is a JSON 
 
 The schema has two main parts:
 - `additional_context`: A string providing general guidance or context to the AI about the documents it will process.
-- `fields`: An array of objects, where each object defines a specific piece of data to extract.
-
-Each field object contains:
-- `key`: The JSON key to use in the output for this piece of data.
-- `description`: A clear and detailed description of the information to find. This is the most important part, as the AI relies on it to locate the data.
-- `type`: The expected data type (e.g., "string", "number", "boolean", "date").
+- `fields`: An object where each key represents a specific piece of data to extract. The value for each key is another object with the following properties:
+  - `description`: A clear and detailed description of the information to find. This is the most important part, as the AI relies on it to locate the data.
+  - `type`: The expected data type (e.g., "string", "number", "boolean", "date").
 
 **Example Schema (`my_schema.json`):**
 ```json
 {
   "additional_context": "Extract key financial and company information from an annual 10-K report.",
-  "fields": [
-    {
-      "key": "company_name",
+  "fields": {
+      "company_name": {
       "description": "The full legal name of the company filing the report.",
       "type": "string"
     },
-    {
-      "key": "fiscal_year_end_date",
+      "fiscal_year_end_date": {
       "description": "The end date of the fiscal year covered by the report, usually found on the first page. Format as YYYY-MM-DD.",
       "type": "date"
     },
-    {
-      "key": "total_revenue",
+      "fiscal_year_end_date": {
       "description": "The total revenue or sales figure for the most recent fiscal year. It is typically the first line item in the income statement.",
       "type": "number"
     },
-    {
-      "key": "is_common_stock_listed",
+      "is_common_stock_listed": {
       "description": "A boolean value indicating if the company's common stock is listed on a major exchange like NASDAQ or NYSE.",
       "type": "boolean"
     }
-  ]
+  }
 }
 ```
 
