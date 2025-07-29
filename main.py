@@ -120,8 +120,6 @@ def process_file(file_path, model, extraction_schema, text_mode=False):
                     additional_context=additional_context,
                     extraction_schema=fields_json
                 )
-
-                print(prompt)
                 
                 response = model.generate_content(
                     [prompt, uploaded_file]
@@ -217,7 +215,7 @@ def main():
     )
     parser.add_argument(
         '--recursive',
-        action='store_false',
+        action='store_true',
         help="Search for PDF files recursively in subdirectories. (default: False)"
     )
     parser.add_argument(
@@ -267,13 +265,13 @@ def main():
 
     pdf_files = []
 
-    if not args.recursive:    
-        pdf_files = [f for f in os.listdir(input_directory) if f.lower().endswith(".pdf")]
-    else:   
+    if args.recursive:    
         for root, dirs, files in os.walk(input_directory):
             for file in files:
                 if file.lower().endswith(".pdf"):
                     pdf_files.append(os.path.join(root, file))
+    else:   
+        pdf_files = [f for f in os.listdir(input_directory) if f.lower().endswith(".pdf")]
 
     if not pdf_files:
         console.print(f"[yellow]No PDF files found in: {input_directory}[/yellow]")
