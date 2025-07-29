@@ -120,8 +120,6 @@ def process_file(file_path, model, extraction_schema, text_mode=False):
                     additional_context=additional_context,
                     extraction_schema=fields_json
                 )
-
-                print(prompt)
                 
                 response = model.generate_content(
                     [prompt, uploaded_file]
@@ -216,6 +214,11 @@ def main():
         help="Path to the directory containing PDF files. (default: current directory)"
     )
     parser.add_argument(
+        '--recursive',
+        action='store_true',
+        help="Search for PDF files recursively in subdirectories. (default: False)"
+    )
+    parser.add_argument(
         '-s', '--schema',
         default=DEFAULT_EXTRACT_SCHEMA,
         help=f"The name of the extraction schema to use. (default: {DEFAULT_EXTRACT_SCHEMA})"
@@ -260,13 +263,21 @@ def main():
         console.print(f"[bold red]Error: No fields specified in the extraction schema.[/bold red]")
         return
 
-    pdf_files = [f for f in os.listdir(input_directory) if f.lower().endswith(".pdf")]
+    pdf_files = []
+
+    if args.recursive:    
+        for root, dirs, files in os.walk(input_directory):
+            for file in files:
+                if file.lower().endswith(".pdf"):
+                    pdf_files.append(os.path.join(root, file))
+    else:   
+        pdf_files = [f for f in os.listdir(input_directory) if f.lower().endswith(".pdf")]
 
     if not pdf_files:
         console.print(f"[yellow]No PDF files found in: {input_directory}[/yellow]")
         return
 
-    console.print(f"Found [cyan]{len(pdf_files)}[/cyan] PDF file(s) to process in [blue]{input_directory}[/blue].")
+    console.print(f"Found [cyan]{len(pdf_files)}[/cyan] PDF file(s) to process in [blue]{input_directory}[/blue] and subdirectories.")
 
     all_results = []
     
@@ -280,8 +291,8 @@ def main():
     ) as progress:
         task = progress.add_task("[green]Processing PDFs...", total=len(pdf_files))
         
-        for filename in pdf_files:
-            file_path = os.path.join(input_directory, filename)
+        for file_path in pdf_files:
+            filename = os.path.basename(file_path)
             progress.update(task, description=f"[green]Processing [bold]{filename}[/bold]...")
             
             result = process_file(file_path, model, extraction_schema, args.text_mode)
