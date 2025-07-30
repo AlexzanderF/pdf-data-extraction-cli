@@ -6,6 +6,8 @@ import pymupdf  # PyMuPDF
 import google.generativeai as genai
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
+import csv
+from pathlib import Path
 
 # Check for API key in environment variables first, then fall back to hardcoded value
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
@@ -176,7 +178,39 @@ def process_file(file_path, model, extraction_schema, text_mode=False):
         # Clean up potential markdown formatting from the response
         cleaned_response_text = response.text.strip().replace("```json", "").replace("```", "")
         
-        extracted_data = json.loads(cleaned_response_text)
+        # Try to extract JSON from the response if it's wrapped in other text
+        try:
+            # First, try to parse as-is
+            extracted_data = json.loads(cleaned_response_text)
+        except json.JSONDecodeError:
+            # If that fails, try to find JSON within the response
+            import re
+            json_match = re.search(r'\{.*\}', cleaned_response_text, re.DOTALL)
+            if json_match:
+                try:
+                    extracted_data = json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    console.print(f"  [red]Error: Failed to decode JSON from LLM response for {filename}.[/red]")
+                    console.print(f"  [dim]LLM raw response: {response.text[:500]}...[/dim]")
+                    return None
+            else:
+                console.print(f"  [red]Error: No valid JSON found in LLM response for {filename}.[/red]")
+                console.print(f"  [dim]LLM raw response: {response.text[:500]}...[/dim]")
+                return None
+        
+        # Handle case where LLM returns a list instead of a dictionary
+        if isinstance(extracted_data, list):
+            if len(extracted_data) > 0:
+                # Take the first item if it's a list
+                extracted_data = extracted_data[0]
+            else:
+                # Create empty dict if list is empty
+                extracted_data = {}
+        
+        # Ensure extracted_data is a dictionary
+        if not isinstance(extracted_data, dict):
+            console.print(f"  [red]Error: LLM returned invalid data type for {filename}. Expected dict, got {type(extracted_data)}[/red]")
+            return None
         
         # Add metadata we already know
         extracted_data.update(metadata)
@@ -190,7 +224,55 @@ def process_file(file_path, model, extraction_schema, text_mode=False):
     except Exception as e:
         console.print(f"  [red]An error occurred while processing {filename}: {e}[/red]")
         return None
+
+def flatten_json_to_csv(data, parent_key='', sep='_'):
+    """Flatten nested JSON structure for CSV output"""
+    items = []
+    for k, v in data.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_json_to_csv(v, new_key, sep=sep).items())
+        elif isinstance(v, list):
+            # Handle lists by joining with semicolon
+            items.append((new_key, '; '.join(map(str, v))))
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+def save_to_csv(data, output_file):
+    """Save extracted data to CSV format"""
+    if not data:
+        console.print("No data to save to CSV")
+        return
     
+    # Flatten the first item to get column headers
+    flattened_data = []
+    for item in data:
+        flattened_item = flatten_json_to_csv(item)
+        flattened_data.append(flattened_item)
+    
+    if not flattened_data:
+        console.print("No data to save to CSV")
+        return
+    
+    # Get all unique column names
+    all_columns = set()
+    for item in flattened_data:
+        all_columns.update(item.keys())
+    
+    # Sort columns for consistent output
+    columns = sorted(list(all_columns))
+    
+    with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=columns)
+        writer.writeheader()
+        for item in flattened_data:
+            # Fill missing values with empty strings
+            row = {col: item.get(col, '') for col in columns}
+            writer.writerow(row)
+    
+    console.print(f"Data saved to CSV: {output_file}")
+
 def main():
     """Main function to orchestrate the CLI tool."""
 
@@ -233,6 +315,12 @@ def main():
         '--text-mode',
         action='store_true',
         help="Extract text from files and send to Gemini instead of uploading files directly. Use this for files over 50MB or when file upload fails."
+    )
+    parser.add_argument(
+        '--format',
+        choices=['json', 'csv'],
+        default='json',
+        help="Output format for the results (default: json)"
     )
     
     args = parser.parse_args()
@@ -309,9 +397,12 @@ def main():
         return
         
     try:
-        with open(args.output, 'w', encoding='utf-8') as f:
-            json.dump(all_results, f, indent=4, ensure_ascii=False)
-        console.print(f"\n[bold green]✓ Done! All data saved to [cyan]{args.output}[/cyan][/bold green]")
+        if args.format == 'json':
+            with open(args.output, 'w', encoding='utf-8') as f:
+                json.dump(all_results, f, indent=4, ensure_ascii=False)
+            console.print(f"\n[bold green]✓ Done! All data saved to [cyan]{args.output}[/cyan][/bold green]")
+        elif args.format == 'csv':
+            save_to_csv(all_results, args.output)
     except Exception as e:
         console.print(f"\n[bold red]Error saving results to file: {e}[/bold red]")
 
